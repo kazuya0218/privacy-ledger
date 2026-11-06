@@ -26,10 +26,82 @@ export const authOptions: NextAuthOptions = {
         }
 
         const { email, password } = parsed.data;
+        const normalizedEmail = email.toLowerCase().trim();
 
-        const user = await prisma.user.findUnique({
-          where: { email: email.toLowerCase() },
-        });
+        let user = null;
+        try {
+          user = await prisma.user.findUnique({
+            where: { email: normalizedEmail },
+          });
+        } catch (dbError) {
+          console.error("Database query failed during authorize:", dbError);
+          return null;
+        }
+
+        // デモアカウントの自己修復（初回デプロイ直後でシードが未実行の場合でも自動作成）
+        if (!user && normalizedEmail === "demo@example.com" && password === "Password123!") {
+          try {
+            console.log("🌱 First-time login detected: Auto-provisioning demo user in database...");
+            const passwordHash = await bcrypt.hash("Password123!", 10);
+            user = await prisma.user.create({
+              data: {
+                email: "demo@example.com",
+                name: "デモユーザー",
+                passwordHash,
+                services: {
+                  create: [
+                    {
+                      name: "Amazon.co.jp",
+                      url: "https://www.amazon.co.jp",
+                      category: "EC・ショッピング",
+                      status: "ACTIVE",
+                      notes: "メインのショッピング用アカウント",
+                      securitySettings: {
+                        create: {
+                          twoFactorEnabled: true,
+                          passkeyStatus: "SUPPORTED",
+                          lastCheckedAt: new Date(),
+                          notes: "2FAアプリ設定済",
+                        },
+                      },
+                      personalData: {
+                        create: [
+                          { dataType: "氏名", isRegistered: true },
+                          { dataType: "メールアドレス", isRegistered: true },
+                          { dataType: "住所", isRegistered: true },
+                          { dataType: "クレジットカード情報", isRegistered: true },
+                        ],
+                      },
+                    },
+                    {
+                      name: "Google",
+                      url: "https://accounts.google.com",
+                      category: "仕事・ビジネス",
+                      status: "ACTIVE",
+                      notes: "Gmailおよび仕事用ドライブ",
+                      securitySettings: {
+                        create: {
+                          twoFactorEnabled: true,
+                          passkeyStatus: "SUPPORTED",
+                          lastCheckedAt: new Date(),
+                        },
+                      },
+                      personalData: {
+                        create: [
+                          { dataType: "氏名", isRegistered: true },
+                          { dataType: "メールアドレス", isRegistered: true },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            });
+            console.log("✅ Auto-provisioning completed successfully.");
+          } catch (autoSeedErr) {
+            console.error("Auto-provisioning demo user error:", autoSeedErr);
+          }
+        }
 
         if (!user || !user.passwordHash) {
           return null;

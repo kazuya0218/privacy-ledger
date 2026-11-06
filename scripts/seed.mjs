@@ -6,17 +6,27 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // 既存のデモユーザーがあれば削除して再作成（リセット）
+  // 既存のデモユーザーの有無を確認（冪等性の担保）
   const demoEmail = 'demo@example.com';
   const existingUser = await prisma.user.findUnique({
     where: { email: demoEmail },
   });
 
   if (existingUser) {
-    await prisma.user.delete({
-      where: { id: existingUser.id },
-    });
-    console.log('🧹 Cleaned up existing demo user.');
+    const isPwValid = await bcrypt.compare('Password123!', existingUser.passwordHash);
+    if (isPwValid) {
+      console.log('✅ Demo user already exists with valid password. Skipping seed to preserve data.');
+      return;
+    } else {
+      // パスワードが異なる場合のみハッシュを更新
+      const newHash = await bcrypt.hash('Password123!', 10);
+      await prisma.user.update({
+        where: { id: existingUser.id },
+        data: { passwordHash: newHash },
+      });
+      console.log('🔄 Updated password hash for existing demo user.');
+      return;
+    }
   }
 
   // デモユーザー作成
